@@ -280,7 +280,7 @@
 
 			for (elBindingCount = 0; elBindingCount < elBindings.length; elBindingCount++) {
 				elBinding = elBindings[elBindingCount];
-				if (this._isBindingUserEditable(elBinding)) {
+				if (this._isBindingUserEditable(elBinding) || elBinding.read) {
 					this._copyViewToModel(elBinding, el);
 				}
 			}
