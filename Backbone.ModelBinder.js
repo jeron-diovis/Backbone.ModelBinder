@@ -373,7 +373,7 @@
 				for (boundElCount = 0; boundElCount < elementBinding.boundEls.length; boundElCount++) {
 					boundEl = elementBinding.boundEls[boundElCount];
 
-					if (!boundEl._isSetting) {
+					if (!(boundEl._isSetting && elementBinding._isSetting)) {
 						convertedValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elementBinding, value);
 						this._setEl($(boundEl), elementBinding, convertedValue);
 					}
@@ -476,8 +476,10 @@
 			if (!el._isSetting) {
 
 				el._isSetting = true;
+				elementBinding._isSetting = true;
 				result = this._setModel(elementBinding, $(el));
 				el._isSetting = false;
+				elementBinding._isSetting = false;
 
 				if (result && elementBinding.converter) {
 					value = this._model.get(elementBinding.attributeBinding.attributeName);
