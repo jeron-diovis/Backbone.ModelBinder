@@ -477,11 +477,18 @@
 
 				el._isSetting = true;
 				elementBinding._isSetting = true;
+
 				result = this._setModel(elementBinding, $(el));
+
 				el._isSetting = false;
 				elementBinding._isSetting = false;
 
-				if (result && elementBinding.converter) {
+				var elVal = this._getElValue(elementBinding, $(el));
+				var isViewValueConverted = !_.isEqual(elVal, this._getConvertedValue(Backbone.ModelBinder.Constants.ViewToModel, elementBinding, elVal));
+
+				var isForceSync = (elementBinding.forceSync || !_.has(elementBinding, 'forceSync'));
+
+				if (isViewValueConverted && isForceSync && result) {
 					value = this._model.get(elementBinding.attributeBinding.attributeName);
 					convertedValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elementBinding, value);
 					this._setEl($(el), elementBinding, convertedValue);
