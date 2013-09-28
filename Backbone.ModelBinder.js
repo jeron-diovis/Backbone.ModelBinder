@@ -229,7 +229,7 @@
 						} else {
 							for (elCount = 0; elCount < elementBinding.boundEls.length; elCount++) {
 								el = $(elementBinding.boundEls[elCount]);
-								if (this._isElUserEditable(el)) {
+								if (this._isElUserEditable(el) || elementBinding.read) {
 									this._copyViewToModel(elementBinding, el);
 								}
 							}
@@ -499,6 +499,20 @@
 		},
 
 		_getElValue: function (elementBinding, el) {
+			var read = elementBinding.read;
+			if (read) {
+				if (_.isString(read)) {
+					return el.attr(read);
+				} else if (_.isFunction(read)) {
+					return read.call(this, el);
+				} else if (_.isBoolean(read)) {
+					// do nothing, drop to 'switch' below. Acts like 'force read'.
+				} else {
+					this._throwException('Unsupported type of option "read"');
+					return undefined;
+				}
+			}
+
 			switch (el.attr('type')) {
 				case 'checkbox':
 					return el.prop('checked') ? true : false;
