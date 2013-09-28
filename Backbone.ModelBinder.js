@@ -199,14 +199,16 @@
 		// attributesToCopy is an optional parameter - if empty, all attributes
 		// that are bound will be copied.  Otherwise, only attributeBindings specified
 		// in the attributesToCopy are copied.
-		copyModelAttributesToView: function (attributesToCopy) {
+		copyModelAttributesToView: function () {
 			var attributeName, attributeBinding;
 
+			var attributesToCopy = arguments.length === 0 ? null : _.toArray(arguments);
+
 			for (attributeName in this._attributeBindings) {
-				if (attributesToCopy === undefined || _.indexOf(attributesToCopy, attributeName) !== -1) {
-					attributeBinding = this._attributeBindings[attributeName];
-					this._copyModelToView(attributeBinding);
-				}
+				if (!(attributesToCopy === null || _.indexOf(attributesToCopy, attributeName) !== -1)) continue;
+
+				attributeBinding = this._attributeBindings[attributeName];
+				this._copyModelToView(attributeBinding);
 			}
 
 			return this;
@@ -214,7 +216,12 @@
 
 		copyViewValuesToModel: function () {
 			var bindingKey, attributeBinding, bindingCount, elementBinding, elCount, el;
+
+			var attributesToCopy = arguments.length === 0 ? null : _.toArray(arguments);
+
 			for (bindingKey in this._attributeBindings) {
+				if (!(attributesToCopy === null || _.indexOf(attributesToCopy, bindingKey) !== -1)) continue;
+
 				attributeBinding = this._attributeBindings[bindingKey];
 
 				for (bindingCount = 0; bindingCount < attributeBinding.elementBindings.length; bindingCount++) {
