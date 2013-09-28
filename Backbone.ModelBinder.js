@@ -273,7 +273,7 @@
 					elBinding = attrBinding.elementBindings[i];
 
 					// TODO: need also to apply 'read' option
-					if (!this._isBindingUserEditable(elBinding)) continue;
+					if (!(this._isBindingUserEditable(elBinding) || elBinding.read)) continue;
 
 					if (this._isBindingRadioGroup(elBinding)) {
 						el = this._getRadioButtonGroupCheckedEl(elBinding);
