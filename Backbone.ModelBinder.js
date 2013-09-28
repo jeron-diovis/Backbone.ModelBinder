@@ -569,8 +569,8 @@
 	// converter(optional) - the default converter you want applied to all your bindings
 	// elAttribute(optional) - the default elAttribute you want applied to all your bindings
 	Backbone.ModelBinder.createDefaultBindings = function (rootEl, boundAttribute, converter, elAttribute) {
-		var foundEls, i, foundEl, attrName;
-		var bindings = {};
+		var foundEls, i, foundEl, attrName,
+			binding, bindings = {};
 
 		foundEls = $('[' + boundAttribute + ']', rootEl);
 
@@ -578,20 +578,22 @@
 			foundEl = foundEls.eq(i);
 			attrName = foundEl.attr(boundAttribute);
 
-			if (!bindings[attrName]) {
-				var attributeBinding = {
+			binding = bindings[attrName];
+			if (!binding) {
+				binding = bindings[attrName] = {
 					selector: '[' + boundAttribute + '="' + attrName + '"]',
 					boundEls: foundEl // since we've already found these els - why we should find them on bind by selector once again?!
 				};
-				bindings[attrName] = attributeBinding;
 
 				if (converter) {
-					bindings[attrName].converter = converter;
+					binding.converter = converter;
 				}
 
 				if (elAttribute) {
-					bindings[attrName].elAttribute = elAttribute;
+					binding.elAttribute = elAttribute;
 				}
+			} else {
+				binding.boundEls = binding.boundEls.add(foundEl);
 			}
 		}
 
