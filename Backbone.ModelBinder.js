@@ -515,7 +515,7 @@
 
 			switch (el.attr('type')) {
 				case 'checkbox':
-					return el.prop('checked') ? true : false;
+					return el.prop('checked');
 				default:
 					if (el.attr('contenteditable') !== undefined) {
 						return el.html();
@@ -526,22 +526,16 @@
 		},
 
 		_setModel: function (elementBinding, el) {
-			var data = {};
 			var elVal = this._getElValue(elementBinding, el);
 			elVal = this._getConvertedValue(Backbone.ModelBinder.Constants.ViewToModel, elementBinding, elVal);
-			data[elementBinding.attributeBinding.attributeName] = elVal;
-			return this._model.set(data, this._options['modelSetOptions']);
+			return this._model.set(elementBinding.attributeBinding.attributeName, elVal, this._options['modelSetOptions']);
 		},
 
 		_getConvertedValue: function (direction, elementBinding, value) {
-
-			if (elementBinding.converter) {
-				value = elementBinding.converter(direction, value, elementBinding.attributeBinding.attributeName, this._model, elementBinding.boundEls);
+			var converter = elementBinding.converter || this._options['converter'];
+			if (converter) {
+				value = converter(direction, value, elementBinding.attributeBinding.attributeName, this._model, elementBinding.boundEls);
 			}
-			else if (this._options['converter']) {
-				value = this._options['converter'](direction, value, elementBinding.attributeBinding.attributeName, this._model, elementBinding.boundEls);
-			}
-
 			return value;
 		},
 
