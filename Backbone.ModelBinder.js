@@ -16,27 +16,51 @@
 		throw 'Please include Backbone.js before Backbone.ModelBinder.js';
 	}
 
+	var constants = {
+		ModelToView: 'ModelToView',
+		ViewToModel: 'ViewToModel'
+	};
+
+	var defaultOptions = {
+		defaultBoundAttribute: 'name',
+		elAttribute: undefined,
+		modelSetOptions: {},
+		initialCopyDirection: constants.ModelToView,
+		changeTriggers: {
+			'': 'change',
+			'[contenteditable]': 'blur'
+		},
+		skipDefaultTriggers: false,
+		useDefaults: false
+	};
+
 	Backbone.ModelBinder = function () {
 		_.bindAll.apply(_, [this].concat(_.functions(this)));
 
 		this._attributeBindings = {};
-		this._options = {};
+		this._options = _.clone(defaultOptions);
 	};
 
-	// Static setter for class level options
-	Backbone.ModelBinder.SetOptions = function (options) {
-		Backbone.ModelBinder.options = options;
-	};
 
 	// Current version of the library.
 	Backbone.ModelBinder.VERSION = '1.0.4';
-	Backbone.ModelBinder.Constants = {};
-	Backbone.ModelBinder.Constants.ModelToView = 'ModelToView';
-	Backbone.ModelBinder.Constants.ViewToModel = 'ViewToModel';
+	Backbone.ModelBinder.Constants = constants;
+
+	// class level options, will be added to each binder instance
+	Backbone.ModelBinder.options = {};
+
+	// Static setter for class level options
+	Backbone.ModelBinder.SetOptions = function (options, merge) {
+		if (merge) {
+			$.extend(true, Backbone.ModelBinder.options, options);
+		} else {
+			Backbone.ModelBinder.options = options;
+		}
+	};
 
 	_.extend(Backbone.ModelBinder.prototype, {
 
-		bind: function (model, rootEl, attributeBindings, options) {
+		bind: function (model, rootEl, bindings, options) {
 			if (!model) this._throwException('model must be specified');
 			if (!rootEl) this._throwException('rootEl must be specified');
 
@@ -44,17 +68,21 @@
 
 			this._model = model;
 			this._rootEl = rootEl instanceof $ ? rootEl : $(rootEl);
-			this._setOptions(options);
+			this._options = this._initOptions(options || {});
 
-			if (attributeBindings) {
-				// Create a deep clone of the attribute bindings
-				this._attributeBindings = _.clone(attributeBindings);
-
-				this._initializeAttributeBindings();
-				this._initializeElBindings();
-			} else {
-				this._initializeDefaultBindings();
+			var defaultBindings = {};
+			if (!bindings || options.useDefaults) {
+				defaultBindings = this.constructor.createDefaultBindings(this._rootEl, this._options.defaultBoundAttribute, null, this._options.elAttribute);
 			}
+
+			if (!bindings) {
+				bindings = defaultBindings;
+			} else {
+				// TODO: maybe, need more smart merge
+				bindings = _.extend(defaultBindings, bindings);
+			}
+
+			this._attributeBindings = this._initElBindings(this._initAttrBindings(bindings), this._rootEl);
 
 			this._bindModelToView();
 			this._bindViewToModel();
@@ -79,44 +107,28 @@
 			return this;
 		},
 
-		_setOptions: function (options) {
-			var defaultTriggers = {
-				'': 'change',
-				'[contenteditable]': 'blur'
-			};
-
-			this._options = _.defaults(
-				_.extend(
-					{ boundAttribute: 'name' },
-					Backbone.ModelBinder.options || {},
-					options || {}
-				),
-				{
-					modelSetOptions: {},
-					changeTriggers: defaultTriggers,
-					initialCopyDirection: Backbone.ModelBinder.Constants.ModelToView
-				}
+		_initOptions: function (options) {
+			options = $.extend(true, {}, defaultOptions,
+				Backbone.ModelBinder.options,
+				options,
+				// constant:
+				{ modelSetOptions: { changeSource: 'ModelBinder' } }
 			);
 
-			this._options.modelSetOptions.changeSource = 'ModelBinder';
-
-			/*
-			 * In code above, if you have passed your own changeTriggers, default ones will not be applied.
-			 * But actually, more often we need only to add some more specific events instead of overriding defaults completely.
-			 */
-			if (!options.skipDefaultTriggers) {
-				_.defaults(this._options.changeTriggers, defaultTriggers);
+			// actually, more often we need only to add some more specific events instead of overriding defaults completely.
+			if (options.skipDefaultTriggers) {
+				options.changeTriggers = _.omit(options.changeTriggers, _.keys(defaultOptions.changeTriggers));
 			}
 
-			return this;
+			return options;
 		},
 
 		// Converts the input bindings, which might just be empty or strings, to binding objects
-		_initializeAttributeBindings: function () {
+		_initAttrBindings: function (srcBindings) {
 			var attrName, inputBinding, attrBinding;
 
-			for (attrName in this._attributeBindings) {
-				inputBinding = this._attributeBindings[attrName];
+			for (attrName in srcBindings) {
+				inputBinding = srcBindings[attrName];
 
 				if (_.isString(inputBinding)) {
 					attrBinding = {
@@ -138,44 +150,17 @@
 				}
 
 				attrBinding.attributeName = attrName;
-				this._attributeBindings[attrName] = attrBinding;
+				srcBindings[attrName] = attrBinding;
 			}
 
-			return this;
+			return srcBindings;
 		},
 
-		// If the bindings are not specified, the default binding is performed on the specified attribute, name by default
-		_initializeDefaultBindings: function () {
-			var elsWithAttribute, matchedEl, name, binding,
-				boundAttr = this._options['boundAttribute'];
-
-			this._attributeBindings = {};
-			elsWithAttribute = $('[' + boundAttr + ']', this._rootEl);
-
-			for (var i = 0; i < elsWithAttribute.length; i++) {
-				matchedEl = elsWithAttribute.eq(i);
-				name = matchedEl.attr(boundAttr);
-
-				// For elements like radio buttons we only want a single attribute binding with possibly multiple element bindings
-				binding = this._attributeBindings[name] = this._attributeBindings[name] || {
-					attributeName: name,
-					elementBindings: []
-				};
-
-				binding.elementBindings.push({
-					attributeBinding: binding,
-					boundEls: matchedEl
-				});
-			}
-
-			return this;
-		},
-
-		_initializeElBindings: function () {
+		_initElBindings: function (srcBindings, rootEl) {
 			var attrName, attrBinding, elBinding, foundEls;
 
-			for (attrName in this._attributeBindings) {
-				attrBinding = this._attributeBindings[attrName];
+			for (attrName in srcBindings) {
+				attrBinding = srcBindings[attrName];
 
 				for (var i = 0; i < attrBinding.elementBindings.length; i++) {
 					elBinding = attrBinding.elementBindings[i];
@@ -183,8 +168,8 @@
 					if (elBinding.hasOwnProperty('boundEls')) continue;
 
 					foundEls = elBinding.selector === ''
-						? this._rootEl
-						: $(elBinding.selector, this._rootEl);
+						? rootEl
+						: $(elBinding.selector, rootEl);
 
 					if (foundEls.length === 0) {
 						this._throwException('Bad binding found. No elements returned for binding selector ' + elBinding.selector);
@@ -194,7 +179,7 @@
 				}
 			}
 
-			return this;
+			return srcBindings;
 		},
 
 		_bindModelToView: function () {
@@ -208,10 +193,10 @@
 		},
 
 		_unbindModelToView: function () {
-			if (this._model) {
-				this._model.off('change', this._onModelChange);
-				this._model = undefined;
-			}
+			if (!this._model)  return false;
+
+			this._model.off('change', this._onModelChange);
+			this._model = undefined;
 
 			return this;
 		},
@@ -232,7 +217,10 @@
 		},
 
 		_configureRootElEvents: function(method) {
-			var selector, event, config = this._options.changeTriggers || {}; // TODO: init options in constructor
+			if (!this._rootEl) return false;
+
+			var selector, event, config = this._options.changeTriggers;
+
 			for (selector in config) {
 				event = config[selector];
 				this._rootEl[method](event, selector, this._onElChanged);
@@ -269,6 +257,7 @@
 
 				attrBinding = this._attributeBindings[attrName];
 
+				// TODO: what is several el bindings write value to same attribute?
 				for (var i = 0; i < attrBinding.elementBindings.length; i++) {
 					elBinding = attrBinding.elementBindings[i];
 
