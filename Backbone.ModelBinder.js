@@ -90,13 +90,6 @@
 			return this;
 		},
 
-		bindCustomTriggers: function (model, rootEl, triggers, attributeBindings, modelSetOptions) {
-			this._triggers = triggers;
-			this.bind(model, rootEl, attributeBindings, modelSetOptions);
-
-			return this;
-		},
-
 		unbind: function () {
 			this._unbindModelToView();
 			this._unbindViewToModel();
