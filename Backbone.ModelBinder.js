@@ -16,7 +16,7 @@
 		throw 'Please include Backbone.js before Backbone.ModelBinder.js';
 	}
 
-	var constants = {
+	var CONST = {
 		ModelToView: 'ModelToView',
 		ViewToModel: 'ViewToModel'
 	};
@@ -25,7 +25,7 @@
 		defaultBoundAttribute: 'name',
 		elAttribute: undefined,
 		modelSetOptions: {},
-		initialCopyDirection: constants.ModelToView,
+		initialCopyDirection: CONST.ModelToView,
 		changeTriggers: {
 			'': 'change',
 			'[contenteditable]': 'blur'
@@ -34,7 +34,7 @@
 		useDefaults: false
 	};
 
-	Backbone.ModelBinder = function () {
+	var ModelBinder = function () {
 		_.bindAll.apply(_, [this].concat(_.functions(this)));
 
 		this._attributeBindings = {};
@@ -43,22 +43,22 @@
 
 
 	// Current version of the library.
-	Backbone.ModelBinder.VERSION = '1.0.4';
-	Backbone.ModelBinder.Constants = constants;
+	ModelBinder.VERSION = '1.0.4';
+	ModelBinder.Constants = CONST;
 
 	// class level options, will be added to each binder instance
-	Backbone.ModelBinder.options = {};
+	ModelBinder.options = {};
 
 	// Static setter for class level options
-	Backbone.ModelBinder.SetOptions = function (options, merge) {
+	ModelBinder.SetOptions = function (options, merge) {
 		if (merge) {
-			$.extend(true, Backbone.ModelBinder.options, options);
+			$.extend(true, ModelBinder.options, options);
 		} else {
-			Backbone.ModelBinder.options = options;
+			ModelBinder.options = options;
 		}
 	};
 
-	_.extend(Backbone.ModelBinder.prototype, {
+	_.extend(ModelBinder.prototype, {
 
 		bind: function (model, rootEl, bindings, options) {
 			if (!model) this._throwException('model must be specified');
@@ -102,7 +102,7 @@
 
 		_initOptions: function (options) {
 			options = $.extend(true, {}, defaultOptions,
-				Backbone.ModelBinder.options,
+				ModelBinder.options,
 				options,
 				// constant:
 				{ modelSetOptions: { changeSource: 'ModelBinder' } }
@@ -178,7 +178,7 @@
 		_bindModelToView: function () {
 			this._model.on('change', this._onModelChange, this);
 
-			if (this._options['initialCopyDirection'] === Backbone.ModelBinder.Constants.ModelToView) {
+			if (this._options.initialCopyDirection === CONST.ModelToView) {
 				this.copyModelAttributesToView();
 			}
 
@@ -197,7 +197,7 @@
 		_bindViewToModel: function () {
 			this._configureRootElEvents('on');
 
-			if (this._options.initialCopyDirection === Backbone.ModelBinder.Constants.ViewToModel) {
+			if (this._options.initialCopyDirection === CONST.ViewToModel) {
 				this.copyViewValuesToModel();
 			}
 
@@ -301,7 +301,7 @@
 		},
 
 		_copyModelToView: function (attrBinding) {
-			var i, elBinding, j, boundEl, value, convertedValue;
+			var i, j, elBinding, boundEl, value, convertedValue;
 
 			value = this._model.get(attrBinding.attributeName);
 
@@ -313,7 +313,7 @@
 					boundEl = elBinding.boundEls.eq(j);
 					if (boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
 
-					convertedValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elBinding, value);
+					convertedValue = this._getConvertedValue(CONST.ModelToView, elBinding, value);
 					this._setEl(boundEl, elBinding, convertedValue);
 				}
 			}
@@ -343,13 +343,13 @@
 			elementBinding._isSetting = false;
 
 			var elVal = this._getElValue(elementBinding, $el);
-			var isViewValueConverted = !_.isEqual(elVal, this._getConvertedValue(Backbone.ModelBinder.Constants.ViewToModel, elementBinding, elVal));
+			var isViewValueConverted = !_.isEqual(elVal, this._getConvertedValue(CONST.ViewToModel, elementBinding, elVal));
 
 			var isForceSync = (elementBinding.forceSync || !_.has(elementBinding, 'forceSync'));
 
 			if (isViewValueConverted && isForceSync && result) {
 				value = this._model.get(elementBinding.attributeBinding.attributeName);
-				convertedValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elementBinding, value);
+				convertedValue = this._getConvertedValue(CONST.ModelToView, elementBinding, value);
 				this._setEl($el, elementBinding, convertedValue);
 			}
 
@@ -358,8 +358,8 @@
 
 		_setModel: function (elBinding, $el) {
 			var elVal = this._getElValue(elBinding, $el);
-			elVal = this._getConvertedValue(Backbone.ModelBinder.Constants.ViewToModel, elBinding, elVal);
-			return this._model.set(elBinding.attributeBinding.attributeName, elVal, this._options['modelSetOptions']);
+			elVal = this._getConvertedValue(CONST.ViewToModel, elBinding, elVal);
+			return this._model.set(elBinding.attributeBinding.attributeName, elVal, this._options.modelSetOptions);
 		},
 
 		_setEl: function ($el, elBinding, convertedValue) {
@@ -397,7 +397,7 @@
 					var currentValue = this._model.get(elBinding.attributeBinding.attributeName);
 					// is current value is now defined then remove the class the may have been set for the undefined value
 					if (!_.isUndefined(previousValue) || !_.isUndefined(currentValue)) {
-						previousValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elBinding, previousValue);
+						previousValue = this._getConvertedValue(CONST.ModelToView, elBinding, previousValue);
 						$el.removeClass(previousValue);
 					}
 
@@ -508,7 +508,7 @@
 		},
 
 		_getConvertedValue: function (direction, elBinding, value) {
-			var converter = elBinding.converter || this._options['converter'];
+			var converter = elBinding.converter || this._options.converter;
 			if (converter) {
 				value = converter(direction, value, elBinding.attributeBinding.attributeName, this._model, elBinding.boundEls);
 			}
@@ -526,7 +526,7 @@
 		}
 	});
 
-	Backbone.ModelBinder.CollectionConverter = function (collection) {
+	ModelBinder.CollectionConverter = function (collection) {
 		this._collection = collection;
 
 		if (!this._collection) {
@@ -535,9 +535,9 @@
 		_.bindAll(this, 'convert');
 	};
 
-	_.extend(Backbone.ModelBinder.CollectionConverter.prototype, {
+	_.extend(ModelBinder.CollectionConverter.prototype, {
 		convert: function (direction, value) {
-			if (direction === Backbone.ModelBinder.Constants.ModelToView) {
+			if (direction === CONST.ModelToView) {
 				return value ? value.id : undefined;
 			} else {
 				return this._collection.get(value);
@@ -550,7 +550,7 @@
 	// boundAttribute - probably 'name' or 'id' in most cases
 	// converter(optional) - the default converter you want applied to all your bindings
 	// elAttribute(optional) - the default elAttribute you want applied to all your bindings
-	Backbone.ModelBinder.createDefaultBindings = function (rootEl, boundAttribute, converter, elAttribute) {
+	ModelBinder.createDefaultBindings = function (rootEl, boundAttribute, converter, elAttribute) {
 		var $foundEls, i, $foundEl, attrName,
 			binding, bindings = {};
 
@@ -583,7 +583,7 @@
 	};
 
 	// Helps you to combine 2 sets of bindings
-	Backbone.ModelBinder.combineBindings = function (destination, source) {
+	ModelBinder.combineBindings = function (destination, source) {
 		_.each(source, function (value, key) {
 			var elementBinding = {selector: value.selector};
 
@@ -607,6 +607,6 @@
 	};
 
 
-	return Backbone.ModelBinder;
+	return ModelBinder;
 
 }));
