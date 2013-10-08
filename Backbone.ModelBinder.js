@@ -241,7 +241,7 @@
 		},
 
 		copyViewValuesToModel: function () {
-			var attrName, attrBinding, elBinding, el;
+			var attrName, attrBinding, elBinding, $el;
 
 			var attributesToCopy = arguments.length === 0 ? null : _.toArray(arguments);
 
@@ -258,15 +258,15 @@
 					if (!(this._isBindingUserEditable(elBinding) || elBinding.read)) continue;
 
 					if (this._isBindingRadioGroup(elBinding)) {
-						el = this._getRadioButtonGroupCheckedEl(elBinding);
-						if (el) {
-							this._copyViewToModel(elBinding, el);
+						$el = this._getRadioButtonGroupCheckedEl(elBinding);
+						if ($el) {
+							this._copyViewToModel(elBinding, $el);
 						}
 					} else {
 						for (var j = 0; j < elBinding.boundEls.length; j++) {
-							el = elBinding.boundEls.eq(j);
-							if (this._isElUserEditable(el) || elBinding.read) {
-								this._copyViewToModel(elBinding, el);
+							$el = elBinding.boundEls.eq(j);
+							if (this._isElUserEditable($el) || elBinding.read) {
+								this._copyViewToModel(elBinding, $el);
 							}
 						}
 					}
@@ -356,41 +356,41 @@
 			return this;
 		},
 
-		_setModel: function (elBinding, el) {
-			var elVal = this._getElValue(elBinding, el);
+		_setModel: function (elBinding, $el) {
+			var elVal = this._getElValue(elBinding, $el);
 			elVal = this._getConvertedValue(Backbone.ModelBinder.Constants.ViewToModel, elBinding, elVal);
 			return this._model.set(elBinding.attributeBinding.attributeName, elVal, this._options['modelSetOptions']);
 		},
 
-		_setEl: function (el, elBinding, convertedValue) {
+		_setEl: function ($el, elBinding, convertedValue) {
 			if (elBinding.elAttribute) {
-				this._setElAttribute(el, elBinding, convertedValue);
+				this._setElAttribute($el, elBinding, convertedValue);
 			} else {
-				this._setElValue(el, convertedValue);
+				this._setElValue($el, convertedValue);
 			}
 
 			return this;
 		},
 
-		_setElAttribute: function (el, elBinding, convertedValue) {
+		_setElAttribute: function ($el, elBinding, convertedValue) {
 			switch (elBinding.elAttribute) {
 				case 'html':
-					el.html(convertedValue);
+					$el.html(convertedValue);
 					break;
 				case 'text':
-					el.text(convertedValue);
+					$el.text(convertedValue);
 					break;
 				case 'enabled':
-					el.prop('disabled', !convertedValue);
+					$el.prop('disabled', !convertedValue);
 					break;
 				case 'displayed':
-					el[convertedValue ? 'show' : 'hide']();
+					$el[convertedValue ? 'show' : 'hide']();
 					break;
 				case 'hidden':
-					el[convertedValue ? 'hide' : 'show']();
+					$el[convertedValue ? 'hide' : 'show']();
 					break;
 				case 'css':
-					el.css(elBinding.cssAttribute, convertedValue);
+					$el.css(elBinding.cssAttribute, convertedValue);
 					break;
 				case 'class':
 					var previousValue = this._model.previous(elBinding.attributeBinding.attributeName);
@@ -398,33 +398,33 @@
 					// is current value is now defined then remove the class the may have been set for the undefined value
 					if (!_.isUndefined(previousValue) || !_.isUndefined(currentValue)) {
 						previousValue = this._getConvertedValue(Backbone.ModelBinder.Constants.ModelToView, elBinding, previousValue);
-						el.removeClass(previousValue);
+						$el.removeClass(previousValue);
 					}
 
 					if (convertedValue) {
-						el.addClass(convertedValue);
+						$el.addClass(convertedValue);
 					}
 					break;
 				default:
-					el.attr(elBinding.elAttribute, convertedValue);
+					$el.attr(elBinding.elAttribute, convertedValue);
 			}
 
 			return this;
 		},
 
-		_setElValue: function (el, convertedValue) {
-			if (el.attr('type')) {
-				switch (el.attr('type')) {
+		_setElValue: function ($el, convertedValue) {
+			if ($el.attr('type')) {
+				switch ($el.attr('type')) {
 					case 'radio':
-						if (el.val() === convertedValue) {
+						if ($el.val() === convertedValue) {
 							// must defer the change trigger or the change will actually fire with the old value
 							/*el.prop('checked') || _.defer(function () {
 								el.trigger('change');
 							});*/
-							el.prop('checked', true);
+							$el.prop('checked', true);
 						}
 						else {
-							el.prop('checked', false);
+							$el.prop('checked', false);
 						}
 						break;
 					case 'checkbox':
@@ -432,32 +432,32 @@
 						/*el.prop('checked') === !!convertedValue || _.defer(function () {
 							el.trigger('change')
 						});*/
-						el.prop('checked', !!convertedValue);
+						$el.prop('checked', !!convertedValue);
 						break;
 					case 'file':
 						break;
 					default:
-						el.val(convertedValue);
+						$el.val(convertedValue);
 				}
 			} else {
 				var value = convertedValue || (convertedValue === 0 ? '0' : '');
-				if (el.is('input') || el.is('select') || el.is('textarea')) {
-					el.val(value);
+				if ($el.is('input') || $el.is('select') || $el.is('textarea')) {
+					$el.val(value);
 				} else {
-					el.text(value);
+					$el.text(value);
 				}
 			}
 
 			return this;
 		},
 
-		_getElValue: function (elementBinding, el) {
+		_getElValue: function (elementBinding, $el) {
 			var read = elementBinding.read;
 			if (read) {
 				if (_.isString(read)) {
-					return el.attr(read);
+					return $el.attr(read);
 				} else if (_.isFunction(read)) {
-					return read.call(this, el);
+					return read.call(this, $el);
 				} else if (_.isBoolean(read)) {
 					// do nothing, drop to 'switch' below. Acts like 'force read'.
 				} else {
@@ -466,14 +466,14 @@
 				}
 			}
 
-			switch (el.attr('type')) {
+			switch ($el.attr('type')) {
 				case 'checkbox':
-					return el.prop('checked');
+					return $el.prop('checked');
 				default:
-					if (el.attr('contenteditable') !== undefined) {
-						return el.html();
+					if ($el.attr('contenteditable') !== undefined) {
+						return $el.html();
 					} else {
-						return el.val();
+						return $el.val();
 					}
 			}
 		},
@@ -484,19 +484,19 @@
 				elBinding.elAttribute === 'html';
 		},
 
-		_isElUserEditable: function (el) {
-			var isContentEditable = el.attr('contenteditable');
-			return isContentEditable || el.is('input') || el.is('select') || el.is('textarea');
+		_isElUserEditable: function ($el) {
+			var isContentEditable = $el.attr('contenteditable');
+			return isContentEditable || $el.is('input') || $el.is('select') || $el.is('textarea');
 		},
 
 		_isBindingRadioGroup: function (elBinding) {
-			var els = elBinding.boundEls;
-			return els.filter('input:radio').length === els.length;
+			var elements = elBinding.boundEls;
+			return elements.filter('input:radio').length === elements.length;
 		},
 
 		_getRadioButtonGroupCheckedEl: function (elBinding) {
-			var el = elBinding.boundEls.filter('input:radio:checked');
-			return el.length > 0 ? el : null;
+			var $el = elBinding.boundEls.filter('input:radio:checked');
+			return $el.length > 0 ? $el : null;
 		},
 
 		_getElBindings: function (findEl) {
@@ -551,20 +551,20 @@
 	// converter(optional) - the default converter you want applied to all your bindings
 	// elAttribute(optional) - the default elAttribute you want applied to all your bindings
 	Backbone.ModelBinder.createDefaultBindings = function (rootEl, boundAttribute, converter, elAttribute) {
-		var foundEls, i, foundEl, attrName,
+		var $foundEls, i, $foundEl, attrName,
 			binding, bindings = {};
 
-		foundEls = $('[' + boundAttribute + ']', rootEl);
+		$foundEls = $('[' + boundAttribute + ']', rootEl);
 
-		for (i = 0; i < foundEls.length; i++) {
-			foundEl = foundEls.eq(i);
-			attrName = foundEl.attr(boundAttribute);
+		for (i = 0; i < $foundEls.length; i++) {
+			$foundEl = $foundEls.eq(i);
+			attrName = $foundEl.attr(boundAttribute);
 
 			binding = bindings[attrName];
 			if (!binding) {
 				binding = bindings[attrName] = {
 					selector: '[' + boundAttribute + '="' + attrName + '"]',
-					boundEls: foundEl // since we've already found these els - why we should find them on bind by selector once again?!
+					boundEls: $foundEl // since we've already found these els - why we should find them on bind by selector once again?!
 				};
 
 				if (converter) {
@@ -575,7 +575,7 @@
 					binding.elAttribute = elAttribute;
 				}
 			} else {
-				binding.boundEls = binding.boundEls.add(foundEl);
+				binding.boundEls = binding.boundEls.add($foundEl);
 			}
 		}
 
