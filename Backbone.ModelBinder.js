@@ -134,7 +134,7 @@
 				} else if (_.isObject(inputBinding)) {
 					attrBinding = { elementBindings: [inputBinding] };
 				} else {
-					this._throwException('Unsupported type passed to Model Binder ' + attrBinding);
+					this._throwException('Unsupported type passed to Model Binder: ' + inputBinding);
 				}
 
 				// Add a linkage from the element binding back to the attribute binding
