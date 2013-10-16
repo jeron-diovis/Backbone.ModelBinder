@@ -307,11 +307,10 @@
 
 			for (i = 0; i < attrBinding.elementBindings.length; i++) {
 				elBinding = attrBinding.elementBindings[i];
-				if (elBinding._isSetting) continue;
 
 				for (j = 0; j < elBinding.boundEls.length; j++) {
 					boundEl = elBinding.boundEls.eq(j);
-					if (boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
+					if (elBinding._isSetting && boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
 
 					convertedValue = this._getConvertedValue(CONST.ModelToView, elBinding, value);
 					this._setEl(boundEl, elBinding, convertedValue);
