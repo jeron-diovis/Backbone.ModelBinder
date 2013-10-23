@@ -382,6 +382,9 @@
 				case 'enabled':
 					$el.prop('disabled', !convertedValue);
 					break;
+				case 'disabled':
+					$el.prop('disabled', convertedValue);
+					break;
 				case 'displayed':
 					$el[convertedValue ? 'show' : 'hide']();
 					break;
