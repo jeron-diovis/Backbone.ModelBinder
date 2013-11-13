@@ -71,11 +71,11 @@
 			this._options = this._initOptions(options || {});
 
 			var defaultBindings = {};
-			if (!bindings || options.useDefaults) {
+			if (_.isEmpty(bindings) || options.useDefaults) {
 				defaultBindings = this.constructor.createDefaultBindings(this._rootEl, this._options.defaultBoundAttribute, null, this._options.elAttribute);
 			}
 
-			if (!bindings) {
+			if (_.isEmpty(bindings)) {
 				bindings = defaultBindings;
 			} else {
 				// TODO: maybe, need more smart merge
@@ -210,13 +210,16 @@
 		},
 
 		_configureRootElEvents: function(method) {
-			if (!this._rootEl) return false;
+			var $el = this._rootEl;
+			if (!$el) return false;
 
 			var selector, event, config = this._options.changeTriggers;
 
+			var args;
 			for (selector in config) {
 				event = config[selector];
-				this._rootEl[method](event, selector, this._onElChanged);
+				args = selector ? [event, selector, this._onElChanged] : [event, this._onElChanged];
+				$el[method].apply($el, args);
 			}
 
 			return this;
@@ -307,10 +310,11 @@
 
 			for (i = 0; i < attrBinding.elementBindings.length; i++) {
 				elBinding = attrBinding.elementBindings[i];
+				if (elBinding._isSetting) continue;
 
 				for (j = 0; j < elBinding.boundEls.length; j++) {
 					boundEl = elBinding.boundEls.eq(j);
-					if (elBinding._isSetting && boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
+					if (boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
 
 					convertedValue = this._getConvertedValue(CONST.ModelToView, elBinding, value);
 					this._setEl(boundEl, elBinding, convertedValue);
