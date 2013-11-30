@@ -1,14 +1,18 @@
-// Backbone.ModelBinder v1.0.4
-// (c) 2013 Bart Wood
-// Distributed Under MIT License
-
+/**
+ * @module Backbone.ModelBinder
+ * @version 2.0.0
+ * @license MIT
+ * @author Jeron Diovis
+ * Repo: {@link https://github.com/jeron-diovis/Backbone.ModelBinder}
+ * Based on Bart Wood's origin module {@link https://github.com/theironcook/Backbone.ModelBinder}
+ */
 (function (factory) {
 	if (typeof define === 'function' && define.amd) {
 		// AMD. Register as an anonymous module.
 		define(['underscore', 'jquery', 'backbone'], factory);
 	} else {
 		// Browser globals
-		factory(_, $, Backbone);
+		Backbone.ModelBinder = factory(_, $, Backbone);
 	}
 }(function (_, $, Backbone) {
 
@@ -22,8 +26,10 @@
 	};
 
 	var defaultOptions = {
-		defaultBoundAttribute: 'name',
-		elAttribute: undefined,
+		defaults: {
+			boundAttr: 'name'
+		},
+		elAttr: undefined,
 		modelSetOptions: {},
 		initialCopyDirection: CONST.ModelToView,
 		changeTriggers: {
@@ -38,19 +44,18 @@
 		_.bindAll.apply(_, [this].concat(_.functions(this)));
 
 		this._attributeBindings = {};
-		this._options = _.clone(defaultOptions);
+		this._options = $.extend(true, {}, defaultOptions); // deep clone
 	};
 
-
 	// Current version of the library.
-	ModelBinder.VERSION = '1.0.4';
+	ModelBinder.VERSION = '2.0.0';
 	ModelBinder.Constants = CONST;
 
 	// class level options, will be added to each binder instance
 	ModelBinder.options = {};
 
 	// Static setter for class level options
-	ModelBinder.SetOptions = function (options, merge) {
+	ModelBinder.setOptions = function (options, merge) {
 		if (merge) {
 			$.extend(true, ModelBinder.options, options);
 		} else {
@@ -72,7 +77,7 @@
 
 			var defaultBindings = {};
 			if (_.isEmpty(bindings) || options.useDefaults) {
-				defaultBindings = this.constructor.createDefaultBindings(this._rootEl, this._options.defaultBoundAttribute, null, this._options.elAttribute);
+				defaultBindings = this.constructor.createDefaultBindings(this._rootEl, this._options.defaults);
 			}
 
 			if (_.isEmpty(bindings)) {
@@ -101,9 +106,7 @@
 		},
 
 		_initOptions: function (options) {
-			options = $.extend(true, {}, defaultOptions,
-				ModelBinder.options,
-				options,
+			options = $.extend(true, {}, defaultOptions, ModelBinder.options, options,
 				// constant:
 				{ modelSetOptions: { changeSource: 'ModelBinder' } }
 			);
@@ -365,7 +368,7 @@
 		},
 
 		_setEl: function ($el, elBinding, convertedValue) {
-			if (elBinding.elAttribute) {
+			if (elBinding.elAttr) {
 				this._setElAttribute($el, elBinding, convertedValue);
 			} else {
 				this._setElValue($el, convertedValue);
@@ -375,7 +378,7 @@
 		},
 
 		_setElAttribute: function ($el, elBinding, convertedValue) {
-			switch (elBinding.elAttribute) {
+			switch (elBinding.elAttr) {
 				case 'html':
 					$el.html(convertedValue);
 					break;
@@ -411,7 +414,7 @@
 					}
 					break;
 				default:
-					$el.attr(elBinding.elAttribute, convertedValue);
+					$el.attr(elBinding.elAttr, convertedValue);
 			}
 
 			return this;
@@ -484,9 +487,9 @@
 		},
 
 		_isBindingUserEditable: function (elBinding) {
-			return elBinding.elAttribute === undefined ||
-				elBinding.elAttribute === 'text' ||
-				elBinding.elAttribute === 'html';
+			return elBinding.elAttr === undefined ||
+				elBinding.elAttr === 'text' ||
+				elBinding.elAttr === 'html';
 		},
 
 		_isElUserEditable: function ($el) {
@@ -550,41 +553,41 @@
 		}
 	});
 
-	// A static helper function to create a default set of bindings that you can customize before calling the bind() function
-	// rootEl - where to find all of the bound elements
-	// boundAttribute - probably 'name' or 'id' in most cases
-	// converter(optional) - the default converter you want applied to all your bindings
-	// elAttribute(optional) - the default elAttribute you want applied to all your bindings
-	ModelBinder.createDefaultBindings = function (rootEl, boundAttribute, converter, elAttribute) {
-		var $foundEls, i, $foundEl, attrName,
-			binding, bindings = {};
+	/**
+	 * A static helper function to create a default set of bindings that you can customize before calling the bind() function
+	 * @param {Node|jQuery} rootEl  Where to find all of the bound elements
+	 * @param {Object}      options Defines how to create bindings. Following keys are recognized:
+	 *  - boundAttr - identifies elements that should be bound. Probably 'name' or 'id' in most cases
+	 *  - converter(optional) - the default converter you want applied to all your bindings
+	 *  - elAttr(optional) - the default elAttr you want applied to all your bindings
+	 * @returns {Object}
+	 */
+	ModelBinder.createDefaultBindings = function (rootEl, options) {
+		var bindingComponents = _.pick(options, 'converter', 'elAttr');
 
-		$foundEls = $('[' + boundAttribute + ']', rootEl);
-
-		for (i = 0; i < $foundEls.length; i++) {
-			$foundEl = $foundEls.eq(i);
-			attrName = $foundEl.attr(boundAttribute);
-
-			binding = bindings[attrName];
-			if (!binding) {
-				binding = bindings[attrName] = {
-					selector: '[' + boundAttribute + '="' + attrName + '"]',
-					boundEls: $foundEl // since we've already found these els - why we should find them on bind by selector once again?!
-				};
-
-				if (converter) {
-					binding.converter = converter;
-				}
-
-				if (elAttribute) {
-					binding.elAttribute = elAttribute;
-				}
-			} else {
-				binding.boundEls = binding.boundEls.add($foundEl);
+		function createSelector(attrValue) {
+			var parts = ['[', options.boundAttr, ']'];
+			if (attrValue) {
+				parts.splice(-1, 0, '=', '"', attrValue, '"');
 			}
+			return parts.join('');
 		}
 
-		return bindings;
+		function getBoundAttr(elem) {
+			return elem.getAttribute(options.boundAttr);
+		}
+
+		function createBinding(elems, attrName) {
+			return [
+				attrName,
+				_.extend({
+					boundEls: $(elems),
+					selector: createSelector(attrName)
+				}, bindingComponents)
+			];
+		}
+
+		return _.chain($(createSelector(), rootEl)).groupBy(getBoundAttr).map(createBinding).object().value();
 	};
 
 	// Helps you to combine 2 sets of bindings
@@ -596,8 +599,8 @@
 				elementBinding.converter = value.converter;
 			}
 
-			if (value.elAttribute) {
-				elementBinding.elAttribute = value.elAttribute;
+			if (value.elAttr) {
+				elementBinding.elAttr = value.elAttr;
 			}
 
 			if (!destination[key]) {
@@ -611,7 +614,5 @@
 		return destination;
 	};
 
-
 	return ModelBinder;
-
 }));
