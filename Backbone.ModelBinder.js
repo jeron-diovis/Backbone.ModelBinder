@@ -27,7 +27,9 @@
 
 	var defaultOptions = {
 		defaults: {
-			boundAttr: 'name'
+			boundAttr: 'name',
+			filters: {} // { toView: function(value, modelAttrName, model, boundEls), toModel: function(..same arguments...) }
+			// elAttr:  string
 		},
 		elAttr: undefined,
 		modelSetOptions: {},
@@ -40,11 +42,96 @@
 		useDefaults: false
 	};
 
+	var defaultBinders = {
+		'html': function($el, value) {
+			$el.html(value);
+		},
+
+		'text': function($el, value) {
+			$el.text(value);
+		},
+
+		'disabled': function($el, value) {
+			$el.prop('disabled', value);
+		},
+
+		'hidden': function($el, value) {
+			$el[value ? 'hide' : 'show']();
+		},
+
+		'class': function($el, value, prevValue) {
+			if (prevValue) {
+				$el.removeClass(prevValue);
+			}
+			if (value) {
+				$el.addClass(value);
+			}
+		},
+
+		'value': function($el, value) {
+			if ($el.attr('type')) {
+				switch ($el.attr('type')) {
+					case 'radio':
+						$el.prop('checked', $el.val() === value);
+						break;
+					case 'checkbox':
+						$el.prop('checked', !!value);
+						break;
+					case 'file':
+						break;
+					default:
+						$el.val(value);
+				}
+			} else {
+				value = value || (value === 0 ? '0' : '');
+				if ($el.is('input') || $el.is('select') || $el.is('textarea')) {
+					$el.val(value);
+				} else {
+					$el.text(value);
+				}
+			}
+		}
+	};
+
+	// simple inverted binders for convenience
+	_.extend(defaultBinders, _.chain({
+			'enabled': 'disabled',
+			'displayed': 'hidden'
+		})
+		.map(function(origin, inverted) {
+			return [ inverted, function($el, value) {
+				value = !value;
+				return this[origin].apply(this, arguments);
+			} ];
+		})
+		.object().value()
+	);
+
+	var filters = {};
+
+	var utils = {
+		resultArray: function(value) {
+			return _.isArray(value) ? value : [value];
+		},
+
+		resultMap: function(value, mapValue) {
+			return _.isArray(value) ? _.map(value, function() { return mapValue; }) : mapValue;
+		},
+
+		arrayToArgs: function(func) {
+			return function(argsArray) {
+				return func.apply(this, argsArray);
+			};
+		}
+	};
+
 	var ModelBinder = function () {
 		_.bindAll.apply(_, [this].concat(_.functions(this)));
 
-		this._attributeBindings = {};
+		this._bindings = {};
 		this._options = $.extend(true, {}, defaultOptions); // deep clone
+		this.binders = _.clone(defaultBinders);
+		this.filters = _.clone(filters);
 	};
 
 	// Current version of the library.
@@ -66,8 +153,8 @@
 	_.extend(ModelBinder.prototype, {
 
 		bind: function (model, rootEl, bindings, options) {
-			if (!model) this._throwException('model must be specified');
-			if (!rootEl) this._throwException('rootEl must be specified');
+			if (!model)  { this._throwException('model must be specified'); }
+			if (!rootEl) { this._throwException('rootEl must be specified'); }
 
 			this.unbind();
 
@@ -75,32 +162,32 @@
 			this._rootEl = rootEl instanceof $ ? rootEl : $(rootEl);
 			this._options = this._initOptions(options || {});
 
-			var defaultBindings = {};
-			if (_.isEmpty(bindings) || options.useDefaults) {
-				defaultBindings = this.constructor.createDefaultBindings(this._rootEl, this._options.defaults);
+			var isEmpty = _.isEmpty(bindings);
+			if (isEmpty || options.useDefaults) {
+				var defaultBindings = ModelBinder.createDefaultBindings(this._rootEl, this._options.defaults);
+				bindings = isEmpty ? defaultBindings : ModelBinder.mergeBindings(defaultBindings, bindings);
 			}
 
-			if (_.isEmpty(bindings)) {
-				bindings = defaultBindings;
-			} else {
-				// TODO: maybe, need more smart merge
-				bindings = _.extend(defaultBindings, bindings);
-			}
-
-			this._attributeBindings = this._initElBindings(this._initAttrBindings(bindings), this._rootEl);
+			this._bindings = this._initElBindings(this._initAttrBindings(bindings), this._rootEl);
 
 			this._bindModelToView();
 			this._bindViewToModel();
+
+			switch (this._options.initialCopyDirection) {
+				case CONST.ModelToView: this.toView();  break;
+				case CONST.ViewToModel: this.toModel(); break;
+				default: // do nothing
+			}
 
 			return this;
 		},
 
 		unbind: function () {
-			this._unbindModelToView();
-			this._unbindViewToModel();
+			if (this._model)  { this._unbindModelToView(); }
+			if (this._rootEl) { this._unbindViewToModel(); }
 
-			delete this._attributeBindings;
-			this._attributeBindings = {};
+			delete this._bindings;
+			this._bindings = {};
 
 			return this;
 		},
@@ -140,9 +227,23 @@
 					this._throwException('Unsupported type passed to Model Binder: ' + inputBinding);
 				}
 
-				// Add a linkage from the element binding back to the attribute binding
 				for (var i = 0; i < attrBinding.elementBindings.length; i++) {
-					attrBinding.elementBindings[i].attributeBinding = attrBinding;
+					var elBinding = attrBinding.elementBindings[i];
+
+					// Add a linkage from the element binding back to the attribute binding
+					elBinding.attributeBinding = attrBinding;
+
+					_.defaults(elBinding, {
+						filters: {},
+						forceSync: true
+					});
+
+					if (!_.isObject(elBinding.elAttr)) {
+						elBinding.elAttr = _.object(
+							utils.resultArray(elBinding.elAttr || 'value'),
+							utils.resultMap(elBinding.elAttr, true)
+						);
+					}
 				}
 
 				attrBinding.attributeName = attrName;
@@ -161,7 +262,7 @@
 				for (var i = 0; i < attrBinding.elementBindings.length; i++) {
 					elBinding = attrBinding.elementBindings[i];
 					// allow to pre-define bound els. Useful if default pre-created bindings are used
-					if (elBinding.hasOwnProperty('boundEls')) continue;
+					if (elBinding.hasOwnProperty('boundEls')) { continue; }
 
 					foundEls = elBinding.selector === ''
 						? rootEl
@@ -180,17 +281,10 @@
 
 		_bindModelToView: function () {
 			this._model.on('change', this._onModelChange, this);
-
-			if (this._options.initialCopyDirection === CONST.ModelToView) {
-				this.copyModelAttributesToView();
-			}
-
 			return this;
 		},
 
 		_unbindModelToView: function () {
-			if (!this._model)  return false;
-
 			this._model.off('change', this._onModelChange);
 			this._model = undefined;
 
@@ -199,11 +293,6 @@
 
 		_bindViewToModel: function () {
 			this._configureRootElEvents('on');
-
-			if (this._options.initialCopyDirection === CONST.ViewToModel) {
-				this.copyViewValuesToModel();
-			}
-
 			return this;
 		},
 
@@ -213,254 +302,144 @@
 		},
 
 		_configureRootElEvents: function(method) {
-			var $el = this._rootEl;
-			if (!$el) return false;
-
-			var selector, event, config = this._options.changeTriggers;
+			var $el = this._rootEl,
+				config = this._options.changeTriggers,
+				selector, event;
 
 			var args;
 			for (selector in config) {
 				event = config[selector];
-				args = selector ? [event, selector, this._onElChanged] : [event, this._onElChanged];
+				args = [event, this._onViewChange];
+				if (!_.isEmpty(selector)) { args.splice(1, 0, selector); }
 				$el[method].apply($el, args);
 			}
 
 			return this;
 		},
 
-		// attributesToCopy is an optional parameter - if empty, all attributes
-		// that are bound will be copied.  Otherwise, only attributeBindings specified
-		// in the attributesToCopy are copied.
-		copyModelAttributesToView: function () {
-			var attrName, binding;
-
-			var attributesToCopy = arguments.length === 0 ? null : _.toArray(arguments);
-
-			for (attrName in this._attributeBindings) {
-				if (!(attributesToCopy === null || _.indexOf(attributesToCopy, attrName) !== -1)) continue;
-
-				binding = this._attributeBindings[attrName];
-				this._copyModelToView(binding);
-			}
-
-			return this;
+		toView: function() {
+			var binder = this;
+			_.chain(binder._bindings)[arguments.length ? 'pick' : 'identity'](_.toArray(arguments))
+				.pluck('elementBindings')
+				.flatten(true)
+				.map(function(binding) {
+					return binding.boundEls.map(function(index, elem) {
+						if (!(binding._isSetting && elem._isSetting)) {
+							return [ binding, binding.boundEls.eq(index) ]; // use eq, to get jQuery object, not pure DOM node
+						}
+					});
+				})
+				.flatten(true)
+				.each(utils.arrayToArgs(binder._setView));
+			return binder;
 		},
 
-		copyViewValuesToModel: function () {
-			var attrName, attrBinding, elBinding, $el;
+		// TODO: what if several el bindings write value to same attribute?
+		toModel: function () {
+			var binder = this,
+				readableBindings = _.chain(binder._bindings)[arguments.length ? 'pick' : 'identity'](_.toArray(arguments))
+					.pluck('elementBindings')
+					.filter(binder._isBindingReadable);
 
-			var attributesToCopy = arguments.length === 0 ? null : _.toArray(arguments);
-
-			for (attrName in this._attributeBindings) {
-				if (!(attributesToCopy === null || _.indexOf(attributesToCopy, attrName) !== -1)) continue;
-
-				attrBinding = this._attributeBindings[attrName];
-
-				// TODO: what is several el bindings write value to same attribute?
-				for (var i = 0; i < attrBinding.elementBindings.length; i++) {
-					elBinding = attrBinding.elementBindings[i];
-
-					// TODO: need also to apply 'read' option
-					if (!(this._isBindingUserEditable(elBinding) || elBinding.read)) continue;
-
-					if (this._isBindingRadioGroup(elBinding)) {
-						$el = this._getRadioButtonGroupCheckedEl(elBinding);
-						if ($el) {
-							this._copyViewToModel(elBinding, $el);
-						}
-					} else {
-						for (var j = 0; j < elBinding.boundEls.length; j++) {
-							$el = elBinding.boundEls.eq(j);
-							if (this._isElUserEditable($el) || elBinding.read) {
-								this._copyViewToModel(elBinding, $el);
-							}
-						}
+			readableBindings
+				.reject(binder._isBindingRadioGroup)
+				.map(function(binding) {
+					var editableElements = binding.boundEls.filter(binder._isElementEditable);
+					if (_.has(binding, 'read') || editableElements.length > 0) {
+						return [binding, editableElements];
 					}
-				}
-			}
+				})
+				.compact()
+				.each(utils.arrayToArgs(binder._copyViewToModel));
 
-			return this;
-		},
-
-		_onElChanged: function (event) {
-			var el, elBindings, elBinding;
-
-			el = event.target;
-			elBindings = this._getElBindings(el);
-
-			for (var i = 0; i < elBindings.length; i++) {
-				elBinding = elBindings[i];
-				if (this._isBindingUserEditable(elBinding) || elBinding.read) {
-					this._copyViewToModel(elBinding, el);
-				}
-			}
+			// TODO: resolve crazy radiogroups logic
+			readableBindings
+				.filter(binder._isBindingRadioGroup)
+				.each(function(binding) {
+					binding.boundEls.filter('input:radio:checked').each(function(index, elem) {
+						binder._copyViewToModel(binding, binding.boundEls.eq(index));
+					});
+				});
 
 			return this;
 		},
 
 		_onModelChange: function () {
-			_.chain(this._attributeBindings)
-				.pick(_.keys(this._model.changedAttributes()))
-				.each(this._copyModelToView);
-
+			this.toView.apply(this, _.keys(this._model.changedAttributes()));
 			return this;
 		},
 
-		_copyModelToView: function (attrBinding) {
-			var i, j, elBinding, boundEl, value, convertedValue;
-
-			value = this._model.get(attrBinding.attributeName);
-
-			for (i = 0; i < attrBinding.elementBindings.length; i++) {
-				elBinding = attrBinding.elementBindings[i];
-
-				for (j = 0; j < elBinding.boundEls.length; j++) {
-					boundEl = elBinding.boundEls.eq(j);
-					if (elBinding._isSetting && boundEl.get(0)._isSetting) continue; // TODO: resolve a crutch with _isSetting
-
-					convertedValue = this._getConvertedValue(CONST.ModelToView, elBinding, value);
-					this._setEl(boundEl, elBinding, convertedValue);
-				}
-			}
-
-			return this;
-		},
-
-		_copyViewToModel: function (elementBinding, el) {
-			var result, value, convertedValue, $el;
-
-			if (el instanceof $) {
-				$el = el;
-				el = $el.get(0);
-			} else {
-				$el = $(el);
-			}
+		_onViewChange: function (event) {
+			var el = event.target,
+				binder = this;
 
 			// TODO: store trigger el in щио field, do not change el itself
-			if (el._isSetting) return this;
-
+			if (el._isSetting) { return this; }
 			el._isSetting = true;
-			elementBinding._isSetting = true;
 
-			result = this._setModel(elementBinding, $el);
+			_.chain(binder._getBindingsForElement(el))
+				.filter(binder._isBindingReadable)
+				.each(function(binding) {
+					binder._copyViewToModel(binding, $(el));
+				});
 
 			el._isSetting = false;
-			elementBinding._isSetting = false;
 
-			var elVal = this._getElValue(elementBinding, $el);
-			var isViewValueConverted = !_.isEqual(elVal, this._getConvertedValue(CONST.ViewToModel, elementBinding, elVal));
+			return binder;
+		},
 
-			var isForceSync = (elementBinding.forceSync || !_.has(elementBinding, 'forceSync'));
-
-			if (isViewValueConverted && isForceSync && result) {
-				value = this._model.get(elementBinding.attributeBinding.attributeName);
-				convertedValue = this._getConvertedValue(CONST.ModelToView, elementBinding, value);
-				this._setEl($el, elementBinding, convertedValue);
+		_copyViewToModel: function (elBinding, $el) {
+			elBinding._isSetting = true;
+			if (this._setModel(elBinding, $el) && elBinding.forceSync && this._getConverter(CONST.ViewToModel, elBinding)) {
+				this._setView(elBinding, $el);
 			}
+			elBinding._isSetting = false;
 
 			return this;
 		},
 
 		_setModel: function (elBinding, $el) {
-			var elVal = this._getElValue(elBinding, $el);
+			var elVal = this._getElementValue(elBinding, $el);
 			elVal = this._getConvertedValue(CONST.ViewToModel, elBinding, elVal);
 			return this._model.set(elBinding.attributeBinding.attributeName, elVal, this._options.modelSetOptions);
 		},
 
-		_setEl: function ($el, elBinding, convertedValue) {
-			if (elBinding.elAttr) {
-				this._setElAttribute($el, elBinding, convertedValue);
-			} else {
-				this._setElValue($el, convertedValue);
-			}
+		_setView: function (elBinding, $el) {
+			var binder   = this,
+				binders  = binder.binders,
+				bindings = elBinding.elAttr,
+
+				getAttrValue       = function(previous) {
+					return binder._getConvertedValue(CONST.ModelToView, elBinding,
+						binder._model[previous ? 'previous' : 'get'](elBinding.attributeBinding.attributeName)
+					);
+				},
+				modelAttrValue     = getAttrValue(),
+				prevModelAttrValue = getAttrValue(true),
+
+				binderNames    = _.keys(bindings),
+				cssAttrs       = _.filter(binderNames, function(name) { return name.slice(0, 4) === 'css:'; }),
+				directAttrs    = _.difference(binderNames, _.keys(binders)),
+				directBindings = _.chain(bindings).pick(directAttrs)
+					.map(function(filter, name) { return [ name, binder._applyConverter(filter, modelAttrValue, elBinding) ]; })
+					.object().value();
+
+			$el.attr(_.omit(directBindings, cssAttrs))
+				.css(_.pick(directBindings, cssAttrs));
+
+			_.chain(bindings).omit(directAttrs).each(function(filter, binderName) {
+				binders[binderName]($el,
+					binder._applyConverter(filter, modelAttrValue,     elBinding),
+					binder._applyConverter(filter, prevModelAttrValue, elBinding),
+					elBinding
+				);
+			});
 
 			return this;
 		},
 
-		_setElAttribute: function ($el, elBinding, convertedValue) {
-			switch (elBinding.elAttr) {
-				case 'html':
-					$el.html(convertedValue);
-					break;
-				case 'text':
-					$el.text(convertedValue);
-					break;
-				case 'enabled':
-					$el.prop('disabled', !convertedValue);
-					break;
-				case 'disabled':
-					$el.prop('disabled', convertedValue);
-					break;
-				case 'displayed':
-					$el[convertedValue ? 'show' : 'hide']();
-					break;
-				case 'hidden':
-					$el[convertedValue ? 'hide' : 'show']();
-					break;
-				case 'css':
-					$el.css(elBinding.cssAttribute, convertedValue);
-					break;
-				case 'class':
-					var previousValue = this._model.previous(elBinding.attributeBinding.attributeName);
-					var currentValue = this._model.get(elBinding.attributeBinding.attributeName);
-					// is current value is now defined then remove the class the may have been set for the undefined value
-					if (!_.isUndefined(previousValue) || !_.isUndefined(currentValue)) {
-						previousValue = this._getConvertedValue(CONST.ModelToView, elBinding, previousValue);
-						$el.removeClass(previousValue);
-					}
-
-					if (convertedValue) {
-						$el.addClass(convertedValue);
-					}
-					break;
-				default:
-					$el.attr(elBinding.elAttr, convertedValue);
-			}
-
-			return this;
-		},
-
-		_setElValue: function ($el, convertedValue) {
-			if ($el.attr('type')) {
-				switch ($el.attr('type')) {
-					case 'radio':
-						if ($el.val() === convertedValue) {
-							// must defer the change trigger or the change will actually fire with the old value
-							/*el.prop('checked') || _.defer(function () {
-								el.trigger('change');
-							});*/
-							$el.prop('checked', true);
-						}
-						else {
-							$el.prop('checked', false);
-						}
-						break;
-					case 'checkbox':
-						// must defer the change trigger or the change will actually fire with the old value
-						/*el.prop('checked') === !!convertedValue || _.defer(function () {
-							el.trigger('change')
-						});*/
-						$el.prop('checked', !!convertedValue);
-						break;
-					case 'file':
-						break;
-					default:
-						$el.val(convertedValue);
-				}
-			} else {
-				var value = convertedValue || (convertedValue === 0 ? '0' : '');
-				if ($el.is('input') || $el.is('select') || $el.is('textarea')) {
-					$el.val(value);
-				} else {
-					$el.text(value);
-				}
-			}
-
-			return this;
-		},
-
-		_getElValue: function (elementBinding, $el) {
-			var read = elementBinding.read;
+		_getElementValue: function (elBinding, $el) {
+			var read = elBinding.read;
 			if (read) {
 				if (_.isString(read)) {
 					return $el.attr(read);
@@ -486,15 +465,16 @@
 			}
 		},
 
-		_isBindingUserEditable: function (elBinding) {
-			return elBinding.elAttr === undefined ||
-				elBinding.elAttr === 'text' ||
-				elBinding.elAttr === 'html';
+		_isBindingReadable: function (elBinding) {
+			return elBinding.read || this._isBindingEditable(elBinding);
 		},
 
-		_isElUserEditable: function ($el) {
-			var isContentEditable = $el.attr('contenteditable');
-			return isContentEditable || $el.is('input') || $el.is('select') || $el.is('textarea');
+		_isBindingEditable: function (elBinding) {
+			return _.intersection(['value', 'text', 'html'], _.keys(elBinding.elAttr)).length > 0;
+		},
+
+		_isElementEditable: function ($el) {
+			return $el.attr('contenteditable') || $el.is('input') || $el.is('select') || $el.is('textarea');
 		},
 
 		_isBindingRadioGroup: function (elBinding) {
@@ -502,25 +482,26 @@
 			return elements.filter('input:radio').length === elements.length;
 		},
 
-		_getRadioButtonGroupCheckedEl: function (elBinding) {
-			var $el = elBinding.boundEls.filter('input:radio:checked');
-			return $el.length > 0 ? $el : null;
-		},
-
-		_getElBindings: function (findEl) {
-			return _.chain(this._attributeBindings)
+		_getBindingsForElement: function (element) {
+			return _.chain(this._bindings)
 				.pluck('elementBindings')
 				.flatten(true)
-				.filter(function(binding) { return binding.boundEls.is(findEl); })
+				.filter(function(binding) { return binding.boundEls.is(element); })
 				.value();
 		},
 
+		_getConverter: function(direction, elBinding) {
+			var converterName = direction === CONST.ModelToView ? 'toView' : 'toModel';
+			return elBinding.filters[converterName] || this._options.defaults.filters[converterName];
+		},
+
 		_getConvertedValue: function (direction, elBinding, value) {
-			var converter = elBinding.converter || this._options.converter;
-			if (converter) {
-				value = converter(direction, value, elBinding.attributeBinding.attributeName, this._model, elBinding.boundEls);
-			}
-			return value;
+			var converter = this._getConverter(direction, elBinding);
+			return !converter ? value : this._applyConverter(converter, value, elBinding);
+		},
+
+		_applyConverter: function(converter, sourceValue, binding) {
+			return converter === true ? sourceValue : converter(sourceValue, binding.attributeBinding.attributeName, this._model, binding.boundEls);
 		},
 
 		_throwException: function (message) {
@@ -563,7 +544,7 @@
 	 * @returns {Object}
 	 */
 	ModelBinder.createDefaultBindings = function (rootEl, options) {
-		var bindingComponents = _.pick(options, 'converter', 'elAttr');
+		var bindingComponents = _.pick(options, 'filters', 'elAttr');
 
 		function createSelector(attrValue) {
 			var parts = ['[', options.boundAttr, ']'];
@@ -590,28 +571,20 @@
 		return _.chain($(createSelector(), rootEl)).groupBy(getBoundAttr).map(createBinding).object().value();
 	};
 
-	// Helps you to combine 2 sets of bindings
-	ModelBinder.combineBindings = function (destination, source) {
-		_.each(source, function (value, key) {
-			var elementBinding = {selector: value.selector};
-
-			if (value.converter) {
-				elementBinding.converter = value.converter;
-			}
-
-			if (value.elAttr) {
-				elementBinding.elAttr = value.elAttr;
-			}
-
-			if (!destination[key]) {
-				destination[key] = elementBinding;
-			}
-			else {
-				destination[key] = [destination[key], elementBinding];
+	ModelBinder.mergeBindings = function (obj) {
+		_.chain(arguments).toArray().slice(1).each(function(source) {
+			var toMerge, existing;
+			for (var attr in source) {
+				existing = obj[attr];
+				toMerge = source[attr];
+				if (!existing) {
+					obj[attr] = toMerge;
+				} else {
+					_.isArray(existing) ? existing.push(toMerge) : (existing = [existing].concat(toMerge));
+				}
 			}
 		});
-
-		return destination;
+		return obj;
 	};
 
 	return ModelBinder;

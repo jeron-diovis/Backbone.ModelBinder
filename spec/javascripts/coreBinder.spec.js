@@ -38,12 +38,12 @@ describe("core binder", function(){
                 date: '.dateClass'
             });
 
-            var oldSetEl = this.modelBinder._setEl;
+            var oldSetEl = this.modelBinder._setView;
             var newSetEl = function(el, elementBinding, convertedValue){
                 setElCount++;
                 oldSetEl.call(this.modelBinder, el, elementBinding, convertedValue);
             };
-            this.modelBinder._setEl = newSetEl;
+            this.modelBinder._setView = newSetEl;
 
             this.view.$("input.dateClass").val("Kijana");
             this.view.$("input.dateClass").trigger("change");
