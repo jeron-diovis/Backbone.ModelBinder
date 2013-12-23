@@ -129,12 +129,18 @@
 			};
 		},
 
+		flattenArgs: function(args, position) {
+			var proto = Array.prototype;
+			position || (position = 0);
+			return proto.concat.apply(proto, proto.slice.call(args, position));
+		},
+
 		updateValues: function(obj, mutator, updateExisting) {
 			if (!updateExisting) {
 				return _.object(_.keys(obj), _.map(obj, mutator));
 			} else {
 				_.each(obj, function(value, key, obj) {
-					obj[key] = mutator(value, key);
+					obj[key] = mutator(value, key, obj);
 				});
 				return obj;
 			}
@@ -207,54 +213,43 @@
 
 	_.extend(ModelBinder.prototype, {
 
-		test: function(keys) {
+		toView: function() {
 			var modelBinder = this,
-				binders = modelBinder.binders,
-				customBindersNames = _.keys(binders),
-				model  = modelBinder._model;
+				keys        = arguments.length > 0 ? utils.flattenArgs(arguments) : _.keys(modelBinder._bindings),
+				bindings    = modelBinder._getBindingsForAttributes(keys),
+				values      = modelBinder._fetchViewValuesFromModel(keys);
 
-			_.chain(modelBinder._getBindingsForAttributes.apply(modelBinder, keys)).zip(
-					modelBinder._options.forceGet ? _.map(keys, model.get, model) : model.pick(keys),
-					_.pick(model.previousAttributes(), keys)
-				)
-				.map(function(bindings) {
-					return _.map(bindings, function(binding) {
-						var values = Array.prototype.slice.call(arguments, 1);
-						return [
-							binding.boundEls, // TODO: filter out 'isSetting' elements here
-							utils.updateValues(binding.elAttr, function(filter, attribute) {
-								var converter = _.partial(modelBinder._getConvertedValue, CONST.ModelToView, binding, attribute);
-								return _.has(binders, attribute) ? _.map(values, converter) : converter(values[0]);
-							})
-						];
-					});
-				})
-				.flatten(true)
-				.each(utils.arrayToArgs(function($el, valuesConfig) {
-					var customAttrs = valuesConfig,
-						directAttrs = _.difference(_.keys(valuesConfig), customBindersNames),
-						cssPrefix = 'css:',
-						isCssAttr = function(str) { return str.slice(0, cssPrefix.length) === cssPrefix; };
+			_.chain(bindings).pluck('boundEls')
+				.zip(_.map(bindings, function(binding) {
+					return modelBinder._composeViewAttributesForBinding(binding, values[binding.parent.modelAttr]);
+				}))
+				.each(utils.arrayToArgs(modelBinder._updateView));
 
-					if (directAttrs.length > 0) {
-						customAttrs = _.omit(valuesConfig, directAttrs);
-						directAttrs = _.pick(valuesConfig, directAttrs);
+			return modelBinder;
+		},
 
-						_.map(
-							utils.groupByObj(directAttrs,
-								function(name) { return isCssAttr(name) ? 'css' : 'attr'; },
-								{
-									'css': { key: utils.partialRight(String.slice, cssPrefix.length) }
-								}
-							),
-							function(values, method) { $el[method](values); }
-						);
+		toModel: function($element) {
+			var modelBinder = this,
+				model       = modelBinder._model,
+				values      = _.map(
+					modelBinder._getBindingsForElement($element),
+					function(binding) {
+						return modelBinder._composeModelAttributeForBinding(binding, $element);
 					}
+				);
 
-					utils.stream(_.keys(customAttrs), [ binders, customAttrs ], function(binder, values) {
-						binder.apply(binder, [$el].concat(values));
-					});
-				}));
+			_.chain(values).groupBy(_.first).each(function(group, attrName) {
+				var values = _.map(group, _.last);
+				if (_.uniq(values).length > 1) {
+					return modelBinder._throwException([
+						'Configuration error: several bindings returns different value for the same model attribute.\n',
+						'Model attribute: ', attrName, '\n',
+						'Values: ', values.join(', '), '\n'
+					].join(''));
+				}
+			});
+
+			model.set(_.object(values), modelBinder._options.modelSetOptions);
 
 			return modelBinder;
 		},
@@ -345,7 +340,7 @@
 				if (!_.isObject(binding.elAttr)) {
 					binding.elAttr = _.object(
 						utils.ensureArray(binding.elAttr || 'value'),
-						utils.resultMap(binding.elAttr, true)
+						utils.ensureArray(utils.resultMap(binding.elAttr, true))
 					);
 				}
 				return binding;
@@ -419,45 +414,32 @@
 			return this;
 		},
 
-		// ---------------------------------------------------------------
+		// Find matching bindings:
 
-		_getBindingsForAttributes: function() {
+		_getBindingsForAttributes: function(keys) {
 			var binder = this;
-			return _.pluck(
-				arguments.length ? _.pick(binder._bindings, _.toArray(arguments)) : binder._bindings,
-				'bindings'
-			);
+			return _.chain(binder._bindings)
+				[keys.length === 0 ? 'identity' : 'pick'](keys)
+				.pluck('bindings')
+				.flatten(true)
+				//.groupBy(function(binding) { return binding.parent.modelAttr; })
+				.value();
 		},
 
-		_getBindingsForElement: function (element) {
+		_getBindingsForElement: function(element) {
 			var binder = this;
 			return _.chain(binder._bindings)
 				.pluck('bindings')
 				.flatten(true)
 				.filter(function(binding) { return binding.boundEls.is(element); })
+				//.groupBy(function(binding) { return binding.parent.modelAttr; })
 				.value();
 		},
 
 		// ---------------------------------------------------------------
 
-		toView: function() {
-			var binder = this;
-			_.chain(binder._getBindingsForAttributes.apply(binder, arguments))
-				.flatten(true)
-				.map(function(binding) {
-					return binding.boundEls.map(function(index, elem) {
-						if (!(binding._isSetting && elem._isSetting)) {
-							return [ binding, binding.boundEls.eq(index) ]; // use eq, to get jQuery object, not pure DOM node
-						}
-					});
-				})
-				.flatten(true)
-				.each(utils.arrayToArgs(binder._setView));
-			return binder;
-		},
-
 		// TODO: what if several el bindings write value to same attribute?
-		toModel: function () {
+		/*toModel: function () {
 			var binder = this,
 				readableBindings = _.chain(binder._getBindingsForAttributes.apply(binder, arguments)).filter(binder._isBindingReadable);
 
@@ -482,10 +464,10 @@
 				});
 
 			return this;
-		},
+		},*/
 
 		_onModelChange: function () {
-			this.toView.apply(this, _.keys(this._model.changedAttributes()));
+			this.toView(_.keys(this._model.changedAttributes()));
 			return this;
 		},
 
@@ -496,82 +478,26 @@
 			// TODO: store trigger el in щио field, do not change el itself
 			if (el._isSetting) { return this; }
 			el._isSetting = true;
-
-			_.chain(binder._getBindingsForElement(el))
-				.filter(binder._isBindingReadable)
-				.each(function(binding) {
-					binder._copyViewToModel(binding, $(el));
-				});
+			binder.toModel($(el));
 
 			el._isSetting = false;
 
 			return binder;
 		},
 
-		_copyViewToModel: function (elBinding, $el) {
-			elBinding._isSetting = true;
-			if (this._setModel(elBinding, $el) && elBinding.forceSync && this._getConverter(CONST.ViewToModel, elBinding)) {
-				this._setView(elBinding, $el);
-			}
-			elBinding._isSetting = false;
-
-			return this;
-		},
-
-		_setModel: function (elBinding, $el) {
-			var elVal = this._getElementValue(elBinding, $el);
-			elVal = this._getConvertedValue(CONST.ViewToModel, elBinding, elVal);
-			return this._model.set(elBinding.parent.modelAttr, elVal, this._options.modelSetOptions);
-		},
-
-		_setView: function (elBinding) {
-			var binder   = this,
-				binders  = binder.binders,
-				bindings = elBinding.elAttr,
-				$el      = elBinding.boundEls,
-				values   = Array.prototype.slice.call(arguments, 1),
-
-				getAttrValue       = function(previous) {
-					return binder._getConvertedValue(CONST.ModelToView, elBinding,
-						binder._model[previous ? 'previous' : 'get'](elBinding.parent.modelAttr)
-					);
-				},
-				modelAttrValue     = getAttrValue(),
-				prevModelAttrValue = getAttrValue(true),
-
-				binderNames    = _.keys(bindings),
-				cssAttrs       = _.filter(binderNames, function(name) { return name.slice(0, 4) === 'css:'; }),
-				directAttrs    = _.difference(binderNames, _.keys(binders)),
-				directBindings = _.chain(bindings).pick(directAttrs)
-					.map(function(filter, name) { return [ name, binder._applyConverter(filter, modelAttrValue, elBinding) ]; })
-					.object().value();
-
-			$el.attr(_.omit(directBindings, cssAttrs))
-				.css(_.pick(directBindings, cssAttrs));
-
-			_.chain(bindings).omit(directAttrs).each(function(filter, binderName) {
-				binders[binderName]($el,
-					binder._applyConverter(filter, modelAttrValue,     elBinding),
-					binder._applyConverter(filter, prevModelAttrValue, elBinding),
-					elBinding
-				);
-			});
-
-			return this;
-		},
-
-		_getElementValue: function (elBinding, $el) {
-			var read = elBinding.read;
-			if (read) {
-				if (_.isString(read)) {
-					return $el.attr(read);
-				} else if (_.isFunction(read)) {
-					return read.call(this, $el);
-				} else if (_.isBoolean(read)) {
-					// do nothing, drop to 'switch' below. Acts like 'force read'.
+		_getElementValue: function ($el, reader) {
+			if (reader) {
+				if (_.isString(reader)) {
+					return $el.attr(reader);
+				} else if (_.isFunction(reader)) {
+					return reader.call(this, $el);
+				} else if (_.isBoolean(reader)) {
+					if (!this._isElementEditable($el)) {
+						return this._throwException('Not editable element is forced to be read');
+					}
+					// otherwise do nothing, drop to 'switch' below. Acts like 'force read'.
 				} else {
-					this._throwException('Unsupported type of option "read"');
-					return undefined;
+					return this._throwException('Unsupported type of option "read"');
 				}
 			}
 
@@ -607,6 +533,94 @@
 			return elements.filter('input:radio').length === elements.length;
 		},
 
+		// ModelToView direction handlers:
+
+		_fetchViewValuesFromModel: function() {
+			var modelBinder = this,
+				model       = modelBinder._model,
+				keys        = utils.flattenArgs(arguments);
+
+			return _.object(
+				keys,
+				_.zip(
+					modelBinder._options.forceGet ? _.map(keys, model.get, model) : _.values(model.pick(keys)),
+					_.map(keys, model.previous, model)
+				)
+			);
+		},
+
+		_composeViewAttributesForBinding: function(binding, values) {
+			var modelBinder = this;
+
+			return utils.updateValues(binding.elAttr, function(filter, attribute) {
+				var converter = _.partial(modelBinder._getConvertedValue, CONST.ModelToView, binding, attribute);
+				return _.has(modelBinder.binders, attribute) ? _.map(values, converter) : converter(values[0]);
+			});
+		},
+
+		_updateView: function($element, valuesConfig) {
+			var modelBinder = this,
+				binders = modelBinder.binders,
+				customBindersNames = _.keys(binders),
+
+				customAttrs = valuesConfig,
+				directAttrs = _.difference(_.keys(valuesConfig), customBindersNames),
+				cssPrefix = 'css:',
+				isCssAttr = function(str) { return str.slice(0, cssPrefix.length) === cssPrefix; };
+
+			//debugger;
+
+			if (directAttrs.length > 0) {
+				customAttrs = _.omit(valuesConfig, directAttrs);
+				directAttrs = _.pick(valuesConfig, directAttrs);
+
+				_.map(
+					utils.groupByObj(directAttrs,
+						function(value, name) { return isCssAttr(name) ? 'css' : 'attr'; },
+						{
+							'css': { key: utils.partialRight(String.slice, cssPrefix.length) }
+						}
+					),
+					function(values, method) {
+						$element.each(function(index) {
+							$element.eq(index)[method](values);
+						});
+					}
+				);
+			}
+
+			utils.stream(_.keys(customAttrs), [ binders, customAttrs ], function(binder, values) {
+				$element.each(function(index) {
+					binder.apply(binder, [$element.eq(index)].concat(values));
+				});
+			});
+
+			return modelBinder;
+		},
+
+		// ViewToModel direction handlers:
+
+		_fetchModelValueFromView: function(binding, $element) {
+			var modelBinder = this;
+			return modelBinder._getConvertedValue(
+				CONST.ViewToModel,
+				binding,
+				_.isString(binding.read) ? binding.read : null,
+				modelBinder._getElementValue($element, binding.read)
+			);
+		},
+
+		_composeModelAttributeForBinding: function(binding, $element, returnObject) {
+			var modelBinder = this,
+				config = [
+					binding.parent.modelAttr,
+					modelBinder._fetchModelValueFromView(binding, $element)
+				];
+			return returnObject ? _.object([config]) : config;
+		},
+
+		// Convertation:
+
 		_directionToKey: function(direction) {
 			var result;
 			switch (direction) {
@@ -637,9 +651,7 @@
 			return converter(value, binding.parent.modelAttr, this._model);
 		},
 
-		_applyConverter: function(converter, srcValue, binding) {
-			return converter(srcValue, binding.parent.modelAttr, this._model);
-		},
+		// ------------------------------------------------
 
 		_throwException: function (message) {
 			if (this._options.suppressThrows) {
@@ -704,13 +716,14 @@
 	ModelBinder.mergeBindings = function (obj) {
 		_.chain(arguments).toArray().slice(1).each(function(source) {
 			var toMerge, existing;
+
 			for (var attr in source) {
 				existing = obj[attr];
 				toMerge = source[attr];
 				if (!existing) {
 					obj[attr] = toMerge;
 				} else {
-					_.isArray(existing) ? existing.push(toMerge) : (existing = [existing].concat(toMerge));
+					_.isArray(existing) ? existing.push(toMerge) : (obj[attr] = existing = [existing].concat(toMerge));
 				}
 			}
 		});
